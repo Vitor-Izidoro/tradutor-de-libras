@@ -1,0 +1,56 @@
+import pandas as pd
+import numpy as np
+
+def import_from_csv(filepath : str, mode : str ='rf'):
+    df = pd.read_csv(filepath)
+    # Como os dados gerados para o RF já são 2D
+    # A importação é simples, apenas separa as
+    # features das labels
+    if mode == 'rf':
+        labels = df['target']
+        features = df.drop('target', axis=1)
+        return features , labels
+    
+    # Para o LSTM é necessário ordenar novamente através
+    # dos índices de amostra e frames
+    # X amostras, cada amostra tem Y frames, cada frame tem 42 features
+    elif mode =='lstm':
+        feature_cols = [col for col in df.columns if col not in ['target', 'frame_idx', 'sample_idx']]
+        unique_samples = df['sample_idx'].unique()
+        num_samples = len(unique_samples)
+        num_frames = df['frame_idx'].nunique()
+        num_features = len(feature_cols)
+
+        features = np.zeros((num_samples, num_frames, num_features))
+        labels = []
+        
+        # Processo de redimensionização para Array 3D
+        # a partir do Dataset 2D criado
+        for i, sample_id in enumerate(unique_samples):
+            df_sample = df[df['sample_idx'] == sample_id]
+            df_sample = df_sample.sort_values(by='frame_idx')
+
+            # Captura das features por frame da amostra
+            landmarks_matrix = df_sample[feature_cols].values
+            t_real = landmarks_matrix.shape[0]
+            features[i, : t_real, :] = landmarks_matrix
+
+            # Coleta da label da amostra
+            sample_label = df_sample['target'].iloc[0]
+            labels.append(sample_label)
+
+        labels = np.array(labels)
+        return features, labels
+    
+    else:
+        print('Please enter a valid mode')
+        return None, None
+    
+if __name__ == "__main__":
+    features_lstm, labels_lstm = import_from_csv(filepath='dataset/dataset_agarrar_lstm.csv', mode='lstm')
+    print(f'Shape das Features de LSTM: {features_lstm.shape}')
+    print(f'Shape das Labels de LSTM: {labels_lstm.shape}')
+
+    features_rf, labels_rf = import_from_csv(filepath='dataset/dataset_agarrar_rf.csv', mode='rf')
+    print(f'Shape das Features de RF: {features_rf.shape}')
+    print(f'Shape das Labels de RF: {labels_rf.shape}')
