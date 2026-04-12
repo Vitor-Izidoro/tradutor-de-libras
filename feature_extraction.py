@@ -1,12 +1,21 @@
 import os
 import mediapipe as mp
+import pandas as pd
+import numpy as np
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_landmarker.task", mode="lstm", sequence_length=20, step=5):
+def extract_features_from_directory(
+    dataset_root_dir,
+    model_asset_path="hand_landmarker.task",
+    mode="lstm",
+    sequence_length=20,
+    step=5,
+    export_dataframe=False    
+):
     """
     Varre os diretórios de imagens e extrai as coordenadas.
     - mode="rf": Retorna 2D (frame-a-frame)
@@ -75,12 +84,52 @@ def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_lan
                     features.append(sequence)
                     labels.append(label_name)
 
+        if export_dataframe:
+            columns = []
+            if mode=='lstm': 
+                # Adiciona colunas identificadoras da amostra e do frame
+                # para transformacao de 3D para 2D
+                print(f'Numero de labels: {len(labels)}')
+                columns.append('target')
+                columns.append('sample_idx')
+                columns.append('frame_idx')
+                flatten_features = []
+                for sample_idx in range(len(features)):
+                    for frame_idx in range(len(features[sample_idx])):
+
+                        temp_vec = [labels[sample_idx], sample_idx, frame_idx]
+                        temp_vec.extend(features[sample_idx][frame_idx])
+                        flatten_features.append(temp_vec)
+
+                features = flatten_features
+  
+            for i in range(1, 22):
+                columns.append(f'x_{i}')
+                columns.append(f'y_{i}')
+
+            #Vincula a label respectiva e as coordenadas encontradas
+            df = pd.DataFrame(features, columns=columns)
+            if mode == 'rf':
+                df['target'] = labels
+                df = df[['target'] + columns]
+            df.to_csv(f'./dataset/dataset_{label_name}_{mode}.csv', index=False)
+            print(f'Landmarks de {label_name} no modo {mode} exportados para csv')
+
     print(f"Extração concluída! Total de amostras ({mode}): {len(features)}")
+
+
+
     return features, labels
 
 if __name__ == "__main__":
     dataset_root = "dataset/frames"
-    features, labels = extract_features_from_directory(dataset_root_dir=dataset_root)
-    print(len(features))
-    for ft in features:
-        print(len(ft))
+    features, labels = extract_features_from_directory(
+        dataset_root_dir=dataset_root,
+        mode='lstm',
+        export_dataframe=True
+    )
+    features, labels = extract_features_from_directory(
+        dataset_root_dir=dataset_root,
+        mode='rf',
+        export_dataframe=True
+    )
