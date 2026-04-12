@@ -1,31 +1,26 @@
 import os
 import mediapipe as mp
 
-# Atalhos da API do MediaPipe
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_landmarker.task"):
+def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_landmarker.task", mode="lstm", sequence_length=20, step=5):
     """
-    Varre os diretórios de imagens, extrai as coordenadas das mãos e retorna features e labels.
-    Espera-se que o dataset_root_dir contenha subpastas com os nomes dos gestos.
-    Ex: 
-    dataset/frames/gesto_A/frame_0.jpg
-    dataset/frames/gesto_B/frame_0.jpg
+    Varre os diretórios de imagens e extrai as coordenadas.
+    - mode="rf": Retorna 2D (frame-a-frame)
+    - mode="lstm": Retorna 3D (sequências temporais de tamanho 'sequence_length')
     """
     features = []
     labels = []
 
-    # Configura o MediaPipe para modo IMAGEM (estática)
     options = HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_asset_path),
         running_mode=VisionRunningMode.IMAGE
     )
 
     with HandLandmarker.create_from_options(options) as landmarker:
-        # Varre cada subpasta (que representa a classe/gesto)
         for label_name in os.listdir(dataset_root_dir):
             class_dir = os.path.join(dataset_root_dir, label_name)
             
@@ -34,29 +29,51 @@ def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_lan
                 
             print(f"Extraindo features do gesto: {label_name}...")
             
-            for file_name in os.listdir(class_dir):
-                if not file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    continue
+            # 1. Obtém e ORDENA os arquivos numericamente (para manter a linha do tempo correta)
+            file_names = [f for f in os.listdir(class_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            try:
+                # Ordena pegando o número depois de 'frame_' e antes de '.jpg'
+                file_names.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+            except Exception:
+                file_names.sort() # Fallback de segurança
 
+            class_landmarks = [] # Guarda todos os landmarks desta pasta em ordem
+
+            for file_name in file_names:
                 image_path = os.path.join(class_dir, file_name)
                 
-                # Carrega a imagem no formato do MediaPipe
                 try:
                     mp_image = mp.Image.create_from_file(image_path)
                     results = landmarker.detect(mp_image)
 
-                    # Se encontrou uma mão, extrai as coordenadas (x e y)
                     if results.hand_landmarks:
-                        for hand_landmarks in results.hand_landmarks:
-                            landmarks = []
-                            for lm in hand_landmarks:
-                                landmarks.append(lm.x)
-                                landmarks.append(lm.y)
-                            
+                        # Pega a primeira mão detectada
+                        hand_landmarks = results.hand_landmarks[0]
+                        landmarks = []
+                        for lm in hand_landmarks:
+                            landmarks.append(lm.x)
+                            landmarks.append(lm.y)
+                        
+                        if mode == "rf":
                             features.append(landmarks)
-                            labels.append(label_name) # O nome da pasta vira o rótulo (label)
+                            labels.append(label_name)
+                        else:
+                            class_landmarks.append(landmarks)
+                    else:
+                        # Se não detectou a mão e for LSTM, preenche com zeros para manter a contagem de tempo
+                        if mode == "lstm":
+                            class_landmarks.append([0.0] * 42)
                 except Exception as e:
                     print(f"Erro ao processar imagem {image_path}: {e}")
 
-    print(f"Extração concluída! Total de amostras válidas: {len(features)}")
+            # 2. Se for LSTM, agrupa os frames em sequências (Janela Deslizante)
+            if mode == "lstm":
+                # Exemplo: Com sequence_length=20 e step=5, se tivermos 30 frames, 
+                # geramos sequências do [0 ao 20], [5 ao 25], [10 ao 30].
+                for i in range(0, len(class_landmarks) - sequence_length + 1, step):
+                    sequence = class_landmarks[i : i + sequence_length]
+                    features.append(sequence)
+                    labels.append(label_name)
+
+    print(f"Extração concluída! Total de amostras ({mode}): {len(features)}")
     return features, labels

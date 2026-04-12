@@ -5,50 +5,53 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_preprocessing import extract_frames
-from model_training import train_model
+# Importamos as duas novas funções de treino
+from model_training import train_random_forest, train_lstm
 from sign_recognition import recognize_sign
 from feature_extraction import extract_features_from_directory 
 
 def executar_treinamento():
-    """Isola a lógica de extração e treinamento para manter o menu limpo"""
+    """Lógica de extração e escolha do modelo de treinamento"""
     dataset_root = "dataset/frames"
     
-    # Definição dos caminhos dos vídeos
-    video_path_A = "dataset/Agarrar_Articulador3.mp4"
-    video_path_B = "dataset/Agora_Articulador1.mp4"
-    video_path_C = "dataset/Aconselhar_Articulador1.mp4"
-    
     print("\n--- INICIANDO PROCESSO DE TREINAMENTO ---")
-    print("1. Extraindo frames dos vídeos...")
-    # ATENÇÃO: Descomente as linhas abaixo quando tiver os vídeos na pasta
-    # extract_frames(video_path_A, dataset_root, gesture_label="agarrar")
-    # extract_frames(video_path_B, dataset_root, gesture_label="agora")
-    # extract_frames(video_path_C, dataset_root, gesture_label="aconselhar")
-
-    print("\n2. Extraindo features (coordenadas) das imagens...")
-    # Descomente a linha abaixo para realizar a extração real
-    # features, labels = extract_features_from_directory(dataset_root)
+    print("1. Escolha a arquitetura do modelo primeiro:")
+    print("[1] Random Forest (Reconhecimento estático frame-a-frame)")
+    print("[2] LSTM (Reconhecimento contínuo de movimento)")
     
-    # Simulação para evitar que o código quebre caso as variáveis estejam comentadas acima
-    features, labels = [], [] 
+    tipo_modelo = input("\nEscolha (1 ou 2): ").strip()
 
-    # 3. Treinamento
-    # if len(features) < 10:
-    #     print("Erro: Poucos dados extraídos. Tire mais fotos/frames ou verifique a detecção das mãos.")
-    # else:
-    #     print("\n3. Iniciando treinamento do modelo...")
-    #     train_model(features, labels)
-    #     print("\nModelo treinado e atualizado com sucesso!")
+    if tipo_modelo not in ['1', '2']:
+        print("Opção inválida. Cancelando treinamento.")
+        return
 
+    # Mapeia a escolha para o 'mode' do extrator
+    modo_extracao = "rf" if tipo_modelo == '1' else "lstm"
+
+    print(f"\n2. Extraindo features das imagens no modo: {modo_extracao.upper()}...")
+    # AGORA COM DADOS REAIS - Chamando o extrator com o modo selecionado
+    features, labels = extract_features_from_directory(dataset_root, mode=modo_extracao)
+
+    print("\n3. Iniciando Treinamento...")
+    if tipo_modelo == '1':
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do Random Forest.")
+        else:
+            train_random_forest(features, labels)
+            
+    elif tipo_modelo == '2':
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do LSTM. Tire vídeos mais longos (min 20 frames por gesto).")
+        else:
+            train_lstm(features, labels)
 
 if __name__ == "__main__":
     
-    # O loop 'while True' mantém o menu rodando até você escolher sair (opção 0)
     while True:
         print("\n" + "="*50)
         print("   SISTEMA DE RECONHECIMENTO DE SINAIS   ")
         print("="*50)
-        print("[1] Treinar o modelo (Extrair dados e gerar novo .pkl)")
+        print("[1] Treinar o modelo (RF ou LSTM)")
         print("[2] Testar reconhecimento via Câmera (Webcam)")
         print("[3] Testar reconhecimento via Vídeo")
         print("[0] Sair do programa")
@@ -61,15 +64,11 @@ if __name__ == "__main__":
             
         elif escolha == '2':
             fonte_de_video = 0
-            print("\nIniciando teste de reconhecimento em tempo real via webcam...")
+            print("\nIniciando teste de reconhecimento...")
             recognize_sign(fonte_de_video)
             
         elif escolha == '3':
-            # Você pode alterar a string abaixo para apontar para um vídeo de teste específico
             fonte_de_video = "dataset/video_teste.mp4" 
-            print(f"\nIniciando teste de reconhecimento com o vídeo: {fonte_de_video}...")
-            
-            # Verificação rápida para evitar erros se o vídeo não existir
             if os.path.exists(fonte_de_video):
                 recognize_sign(fonte_de_video)
             else:
@@ -77,7 +76,7 @@ if __name__ == "__main__":
                 
         elif escolha == '0':
             print("\nEncerrando o sistema. Até logo!")
-            break # Quebra o loop e finaliza o script
+            break
             
         else:
-            print("\nErro: Opção inválida. Por favor, digite 0, 1, 2 ou 3.")
+            print("\nErro: Opção inválida.")
