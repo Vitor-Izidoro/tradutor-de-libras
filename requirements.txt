@@ -3,3 +3,8 @@ mediapipe
 pandas
 numpy
 scikit-learn
+tensorflow
+scikit-learn
+numpy
+mediapipe
+opencv-python
