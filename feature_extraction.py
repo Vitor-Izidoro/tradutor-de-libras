@@ -60,3 +60,10 @@ def extract_features_from_directory(dataset_root_dir, model_asset_path="hand_lan
 
     print(f"Extração concluída! Total de amostras válidas: {len(features)}")
     return features, labels
+
+if __name__ == "__main__":
+    dataset_root = "dataset/frames"
+    features, labels = extract_features_from_directory(dataset_root_dir=dataset_root)
+    print(len(features))
+    for ft in features:
+        print(len(ft))
