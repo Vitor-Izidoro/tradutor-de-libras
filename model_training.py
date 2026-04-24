@@ -11,7 +11,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.utils import to_categorical
 
-def train_random_forest(features, labels, model_path="models/sign_model.pkl"):
+def train_random_forest(features, labels, model_path="models/sign_model.pkl", return_accuracy=False):
     """
     Treina um modelo de classificação de gestos estáticos usando Random Forest.
     Espera features no formato 2D: (amostras, caracteristicas_por_frame)
@@ -31,9 +31,12 @@ def train_random_forest(features, labels, model_path="models/sign_model.pkl"):
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
     print(f"Modelo Random Forest salvo com sucesso em {model_path}")
+    
+    if return_accuracy:
+        return accuracy
 
 
-def train_lstm(features, labels, model_path="models/lstm_sign_model.h5", encoder_path="models/label_encoder.pkl"):
+def train_lstm(features, labels, model_path="models/lstm_sign_model.h5", encoder_path="models/label_encoder.pkl", return_accuracy=False):
     """
     Treina um modelo LSTM para séries temporais (movimento contínuo).
     Espera features no formato 3D: (amostras, quantidade_de_frames, caracteristicas_por_frame)
@@ -87,3 +90,6 @@ def train_lstm(features, labels, model_path="models/lstm_sign_model.h5", encoder
         
     print(f"Modelo LSTM salvo em {model_path}")
     print(f"Label Encoder salvo em {encoder_path}")
+    
+    if return_accuracy:
+        return accuracy
