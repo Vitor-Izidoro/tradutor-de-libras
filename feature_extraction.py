@@ -122,7 +122,7 @@ def extract_features_from_directory(
     return features, labels
 
 if __name__ == "__main__":
-    dataset_root = "dataset/frames"
+    dataset_root = "dataset/frames_agarrar"
     features, labels = extract_features_from_directory(
         dataset_root_dir=dataset_root,
         mode='lstm',

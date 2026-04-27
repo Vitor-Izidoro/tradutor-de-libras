@@ -47,7 +47,7 @@ def executar_treinamento():
         else:
             train_lstm(features, labels)
 def comparar_pipelines():
-    dataset_root = "dataset/frames"
+    dataset_root = "dataset/frames_agarrar"
 
     print("\n--- COMPARAÇÃO DE PIPELINES ---")
     print("[1] Random Forest")
@@ -130,6 +130,19 @@ def comparar_pipelines():
         print("Melhor resultado: pipeline via CSV")
     else:
         print("Resultado empatado")
+
+    
+    resultado_path = "results/comparacao_pipelines.csv"
+    arquivo_existe = os.path.exists(resultado_path)
+
+    with open(resultado_path, "a", encoding="utf-8") as f:
+        if not arquivo_existe:
+            f.write("modelo,pipeline,acuracia\n")
+
+        f.write(f"{nome_modelo},direto,{acc_direto * 100:.2f}\n")
+        f.write(f"{nome_modelo},csv,{acc_csv * 100:.2f}\n")
+
+    print(f"Resultado salvo em {resultado_path}")
 
 if __name__ == "__main__":
     
