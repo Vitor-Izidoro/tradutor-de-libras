@@ -1,0 +1,9 @@
+Divisão dos Dados: Os dados de entrada (features e labels) são divididos em conjuntos de treino e teste usando train_test_split. Isso garante que o modelo seja avaliado em dados que ele não viu durante o treinamento.
+
+Treinamento do Modelo: O modelo KNN é instanciado com n_neighbors=5, o que significa que ele considera os 5 vizinhos mais próximos para classificar uma nova amostra. O treinamento do KNN, na prática, consiste em armazenar os dados de treino, já que o algoritmo é baseado em instâncias e não constrói um modelo explícito.
+
+Avaliação: A acurácia do modelo é calculada no conjunto de teste usando o método score, que mede a proporção de classificações corretas.
+
+Persistência do Modelo: O modelo treinado é salvo em um arquivo .pkl usando a biblioteca pickle, permitindo que ele seja reutilizado sem a necessidade de re-treinamento.
+
+Pipeline: O KNN foi integrado ao pipeline de treinamento e comparação, permitindo que ele seja usado tanto para classificação estática (frame-a-frame) quanto para avaliação de pipelines diretos e via CSV.

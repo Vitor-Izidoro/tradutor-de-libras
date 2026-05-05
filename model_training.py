@@ -5,6 +5,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 import pickle
 import os
+from sklearn.neighbors import KNeighborsClassifier
 
 # Novos imports necessários para o modelo LSTM
 from tensorflow.keras.models import Sequential
@@ -91,5 +92,30 @@ def train_lstm(features, labels, model_path="models/lstm_sign_model.h5", encoder
     print(f"Modelo LSTM salvo em {model_path}")
     print(f"Label Encoder salvo em {encoder_path}")
     
+    if return_accuracy:
+        return accuracy
+
+
+def train_knn(features, labels, model_path="models/knn_sign_model.pkl", return_accuracy=False):
+    """
+    Treina um modelo de classificação de gestos estáticos usando KNN.
+    Espera features no formato 2D: (amostras, caracteristicas_por_frame)
+    """
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
+
+    model = KNeighborsClassifier(n_neighbors=5)
+    model.fit(X_train, y_train)
+
+    accuracy = model.score(X_test, y_test)
+
+    print(f"Acurácia do KNN: {accuracy * 100:.2f}%")
+
+    # Cria a pasta 'models' se ela não existir
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+
+    with open(model_path, "wb") as f:
+        pickle.dump(model, f)
+    print(f"Modelo KNN salvo com sucesso em {model_path}")
+
     if return_accuracy:
         return accuracy

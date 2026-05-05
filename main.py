@@ -6,7 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_preprocessing import extract_frames
 # Importamos as duas novas funções de treino
-from model_training import train_random_forest, train_lstm
+from model_training import train_random_forest, train_lstm, train_knn
 from sign_recognition import recognize_sign
 from feature_extraction import extract_features_from_directory 
 
@@ -20,15 +20,16 @@ def executar_treinamento():
     print("1. Escolha a arquitetura do modelo primeiro:")
     print("[1] Random Forest (Reconhecimento estático frame-a-frame)")
     print("[2] LSTM (Reconhecimento contínuo de movimento)")
+    print("[3] KNN (Reconhecimento estático frame-a-frame)")
     
-    tipo_modelo = input("\nEscolha (1 ou 2): ").strip()
+    tipo_modelo = input("\nEscolha (1, 2 ou 3): ").strip()
 
-    if tipo_modelo not in ['1', '2']:
+    if tipo_modelo not in ['1', '2', '3']:
         print("Opção inválida. Cancelando treinamento.")
         return
 
     # Mapeia a escolha para o 'mode' do extrator
-    modo_extracao = "rf" if tipo_modelo == '1' else "lstm"
+    modo_extracao = "rf" if tipo_modelo in ['1', '3'] else "lstm"
 
     print(f"\n2. Extraindo features das imagens no modo: {modo_extracao.upper()}...")
     # AGORA COM DADOS REAIS - Chamando o extrator com o modo selecionado
@@ -46,20 +47,28 @@ def executar_treinamento():
             print("Erro: Dados insuficientes para treino do LSTM. Tire vídeos mais longos (min 20 frames por gesto).")
         else:
             train_lstm(features, labels)
+
+    elif tipo_modelo == '3':
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do KNN.")
+        else:
+            train_knn(features, labels)
+
 def comparar_pipelines():
     dataset_root = "dataset/frames"
 
     print("\n--- COMPARAÇÃO DE PIPELINES ---")
     print("[1] Random Forest")
     print("[2] LSTM")
+    print("[3] KNN")
 
-    tipo_modelo = input("\nEscolha o modelo (1 ou 2): ").strip()
+    tipo_modelo = input("\nEscolha o modelo (1, 2 ou 3): ").strip()
 
-    if tipo_modelo not in ['1', '2']:
+    if tipo_modelo not in ['1', '2', '3']:
         print("Opção inválida.")
         return
 
-    modo_extracao = "rf" if tipo_modelo == '1' else "lstm"
+    modo_extracao = "rf" if tipo_modelo in ['1', '3'] else "lstm"
 
     print(f"\n1. Extraindo features direto dos frames no modo {modo_extracao.upper()}...")
     features_direto, labels_direto = extract_features_from_directory(
@@ -82,7 +91,7 @@ def comparar_pipelines():
         csv_path = input("Caminho do CSV RF [dataset/dataset_agarrar_rf.csv]: ").strip()
         if not csv_path:
             csv_path = "dataset/dataset_agarrar_rf.csv"
-    else:
+    elif tipo_modelo == '2':
         acc_direto = train_lstm(
             features_direto,
             labels_direto,
@@ -93,6 +102,16 @@ def comparar_pipelines():
         csv_path = input("Caminho do CSV LSTM [dataset/dataset_agarrar_lstm.csv]: ").strip()
         if not csv_path:
             csv_path = "dataset/dataset_agarrar_lstm.csv"
+    elif tipo_modelo == '3':
+        acc_direto = train_knn(
+            features_direto,
+            labels_direto,
+            model_path="models/knn_sign_model_direto.pkl",
+            return_accuracy=True
+        )
+        csv_path = input("Caminho do CSV KNN [dataset/dataset_agarrar_rf.csv]: ").strip()
+        if not csv_path:
+            csv_path = "dataset/dataset_agarrar_rf.csv"
 
     print("\n3. Lendo dados do CSV...")
     X_csv, y_csv = import_from_csv(csv_path, mode=modo_extracao)
@@ -109,7 +128,7 @@ def comparar_pipelines():
             model_path="models/sign_model_csv.pkl",
             return_accuracy=True
         )
-    else:
+    elif tipo_modelo == '2':
         acc_csv = train_lstm(
             X_csv,
             y_csv,
@@ -117,9 +136,16 @@ def comparar_pipelines():
             encoder_path="models/label_encoder_csv.pkl",
             return_accuracy=True
         )
+    elif tipo_modelo == '3':
+        acc_csv = train_knn(
+            X_csv,
+            y_csv,
+            model_path="models/knn_sign_model_csv.pkl",
+            return_accuracy=True
+        )
 
     print("\n--- RESULTADO DA COMPARAÇÃO ---")
-    nome_modelo = "Random Forest" if tipo_modelo == '1' else "LSTM"
+    nome_modelo = "Random Forest" if tipo_modelo == '1' else ("LSTM" if tipo_modelo == '2' else "KNN")
     print(f"Modelo: {nome_modelo}")
     print(f"Acurácia pipeline direto: {acc_direto * 100:.2f}%")
     print(f"Acurácia pipeline via CSV: {acc_csv * 100:.2f}%")
