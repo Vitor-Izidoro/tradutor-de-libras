@@ -1,6 +1,32 @@
 import cv2
 import os
-
+def extrair_dataset_completo(pasta_videos_brutos, pasta_destino_frames):
+    """
+    Varre a estrutura de pastas e extrai os vídeos automaticamente.
+    Ex: extrair_dataset_completo("videos_brutos/treino", "dataset/frames_treino")
+    """
+    # Lista as pastas dos gestos (ex: 'agarrar', 'agora')
+    for gesto_label in os.listdir(pasta_videos_brutos):
+        caminho_gesto = os.path.join(pasta_videos_brutos, gesto_label)
+        
+        if not os.path.isdir(caminho_gesto):
+            continue
+            
+        print(f"\nProcessando vídeos do gesto: {gesto_label}...")
+        
+        # Pega todos os mp4 dentro da pasta do gesto
+        for nome_video in os.listdir(caminho_gesto):
+            if nome_video.endswith('.mp4'): # ou avi, mov...
+                caminho_video = os.path.join(caminho_gesto, nome_video)
+                
+                print(f" -> Extraindo: {nome_video}")
+                
+                # Chama a sua função atual
+                extract_frames(
+                    video_path=caminho_video, 
+                    output_root_dir=pasta_destino_frames, 
+                    gesture_label=gesto_label
+                )
 def extract_frames(video_path, output_root_dir, gesture_label, frame_rate=5):
     """
     Extrai frames de um vídeo em uma taxa específica e salva em uma subpasta com o nome do gesto.
