@@ -10,14 +10,14 @@ from sign_recognition import recognize_sign
 from feature_extraction import extract_features_from_directory 
 from import_from_csv import import_from_csv
 
-def extrair_dataset_completo(pasta_videos_brutos, pasta_destino_frames):
+def extrair_dataset_completo(videos, pasta_destino_frames):
     """Função auxiliar que varre diretórios e extrai frames automaticamente"""
-    if not os.path.exists(pasta_videos_brutos):
-        print(f"Aviso: A pasta '{pasta_videos_brutos}' não foi encontrada.")
+    if not os.path.exists(videos):
+        print(f"Aviso: A pasta '{videos}' não foi encontrada.")
         return
 
-    for gesto_label in os.listdir(pasta_videos_brutos):
-        caminho_gesto = os.path.join(pasta_videos_brutos, gesto_label)
+    for gesto_label in os.listdir(videos):
+        caminho_gesto = os.path.join(videos, gesto_label)
         
         if not os.path.isdir(caminho_gesto):
             continue
@@ -89,7 +89,6 @@ def executar_treinamento():
             train_knn(features, labels)
 
 def comparar_pipelines():
-    # ATUALIZADO: Aponta apenas para os dados de treino
     dataset_root = "dataset/frames_treino"
 
     print("\n--- COMPARAÇÃO DE PIPELINES ---")
@@ -105,63 +104,55 @@ def comparar_pipelines():
 
     modo_extracao = "rf" if tipo_modelo in ['1', '3'] else "lstm"
 
-    print(f"\n1. Extraindo features de TREINO direto dos frames no modo {modo_extracao.upper()}...")
+    # 1. Extração Gerando o CSV automaticamente
+    print(f"\n1. Extraindo features e GERANDO CSV no modo {modo_extracao.upper()}...")
     features_direto, labels_direto = extract_features_from_directory(
         dataset_root,
-        mode=modo_extracao
+        mode=modo_extracao,
+        export_dataframe=True # Garante a criação do arquivo
     )
 
     if len(features_direto) < 2:
         print("Erro: dados insuficientes no pipeline direto.")
         return
 
-    print("\n2. Treinando pipeline direto...")
+    # 2. Define o nome do arquivo que ACABOU de ser criado pelo passo acima
+    nome_padrao = f"dataset/dataset_completo_{modo_extracao}.csv"
+    
+    print(f"\n2. O arquivo CSV esperado é: {nome_padrao}")
+    csv_path = input(f"Confirme o caminho do CSV [{nome_padrao}]: ").strip() or nome_padrao
+
+    # 3. Treinando pipeline direto (Memória RAM)
+    print("\n3. Treinando pipeline direto (RAM)...")
     if tipo_modelo == '1':
-        acc_direto = train_random_forest(
-            features_direto, labels_direto,
-            model_path="models/sign_model_direto.pkl", return_accuracy=True
-        )
-        csv_path = input("Caminho do CSV RF [dataset/dataset_agarrar_rf.csv]: ").strip() or "dataset/dataset_agarrar_rf.csv"
+        acc_direto = train_random_forest(features_direto, labels_direto, model_path="models/model_direto.pkl", return_accuracy=True)
     elif tipo_modelo == '2':
-        acc_direto = train_lstm(
-            features_direto, labels_direto,
-            model_path="models/lstm_sign_model_direto.h5", encoder_path="models/label_encoder_direto.pkl", return_accuracy=True
-        )
-        csv_path = input("Caminho do CSV LSTM [dataset/dataset_agarrar_lstm.csv]: ").strip() or "dataset/dataset_agarrar_lstm.csv"
+        acc_direto = train_lstm(features_direto, labels_direto, model_path="models/lstm_direto.h5", encoder_path="models/encoder_direto.pkl", return_accuracy=True)
     elif tipo_modelo == '3':
-        acc_direto = train_knn(
-            features_direto, labels_direto,
-            model_path="models/knn_sign_model_direto.pkl", return_accuracy=True
-        )
-        csv_path = input("Caminho do CSV KNN [dataset/dataset_agarrar_rf.csv]: ").strip() or "dataset/dataset_agarrar_rf.csv"
+        acc_direto = train_knn(features_direto, labels_direto, model_path="models/knn_direto.pkl", return_accuracy=True)
 
-    print("\n3. Lendo dados do CSV...")
-    X_csv, y_csv = import_from_csv(csv_path, mode=modo_extracao)
-
-    if len(X_csv) < 2:
-        print("Erro: dados insuficientes no pipeline CSV.")
+    # 4. Lendo dados do CSV que foi gerado no Passo 1
+    print("\n4. Lendo dados do CSV para comparação...")
+    if not os.path.exists(csv_path):
+        print(f"ERRO CRÍTICO: O arquivo {csv_path} não foi encontrado!")
         return
 
-    print("\n4. Treinando pipeline via CSV...")
+    X_csv, y_csv = import_from_csv(csv_path, mode=modo_extracao)
+
+    # 5. Treinando pipeline via CSV
+    print("\n5. Treinando pipeline via CSV...")
     if tipo_modelo == '1':
-        acc_csv = train_random_forest(X_csv, y_csv, model_path="models/sign_model_csv.pkl", return_accuracy=True)
+        acc_csv = train_random_forest(X_csv, y_csv, model_path="models/model_csv.pkl", return_accuracy=True)
     elif tipo_modelo == '2':
-        acc_csv = train_lstm(X_csv, y_csv, model_path="models/lstm_sign_model_csv.h5", encoder_path="models/label_encoder_csv.pkl", return_accuracy=True)
+        acc_csv = train_lstm(X_csv, y_csv, model_path="models/lstm_csv.h5", encoder_path="models/encoder_csv.pkl", return_accuracy=True)
     elif tipo_modelo == '3':
-        acc_csv = train_knn(X_csv, y_csv, model_path="models/knn_sign_model_csv.pkl", return_accuracy=True)
+        acc_csv = train_knn(X_csv, y_csv, model_path="models/knn_csv.pkl", return_accuracy=True)
 
-    print("\n--- RESULTADO DA COMPARAÇÃO ---")
-    nome_modelo = "Random Forest" if tipo_modelo == '1' else ("LSTM" if tipo_modelo == '2' else "KNN")
-    print(f"Modelo: {nome_modelo}")
-    print(f"Acurácia pipeline direto: {acc_direto * 100:.2f}%")
-    print(f"Acurácia pipeline via CSV: {acc_csv * 100:.2f}%")
-
-    if acc_direto > acc_csv:
-        print("Melhor resultado: pipeline direto")
-    elif acc_csv > acc_direto:
-        print("Melhor resultado: pipeline via CSV")
-    else:
-        print("Resultado empatado")
+    print("\n" + "="*30)
+    print("--- RESULTADO DA COMPARAÇÃO ---")
+    print(f"Acurácia Direto: {acc_direto * 100:.2f}%")
+    print(f"Acurácia via CSV: {acc_csv * 100:.2f}%")
+    print("="*30)
 
 
 if __name__ == "__main__":

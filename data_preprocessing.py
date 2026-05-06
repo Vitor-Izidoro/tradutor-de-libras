@@ -1,13 +1,13 @@
 import cv2
 import os
-def extrair_dataset_completo(pasta_videos_brutos, pasta_destino_frames):
+def extrair_dataset_completo(pasta_videos, pasta_destino_frames):
     """
     Varre a estrutura de pastas e extrai os vídeos automaticamente.
-    Ex: extrair_dataset_completo("videos_brutos/treino", "dataset/frames_treino")
+    Ex: extrair_dataset_completo("videos/treino", "dataset/frames_treino")
     """
     # Lista as pastas dos gestos (ex: 'agarrar', 'agora')
-    for gesto_label in os.listdir(pasta_videos_brutos):
-        caminho_gesto = os.path.join(pasta_videos_brutos, gesto_label)
+    for gesto_label in os.listdir(pasta_videos):
+        caminho_gesto = os.path.join(pasta_videos, gesto_label)
         
         if not os.path.isdir(caminho_gesto):
             continue

@@ -112,8 +112,9 @@ def extract_features_from_directory(
             if mode == 'rf':
                 df['target'] = labels
                 df = df[['target'] + columns]
-            df.to_csv(f'./dataset/dataset_{label_name}_{mode}.csv', index=False)
-            print(f'Landmarks de {label_name} no modo {mode} exportados para csv')
+            # Novo nome fixo para o dataset completo:
+            df.to_csv(f'./dataset/dataset_completo_{mode}.csv', index=False)
+            print(f'Dataset completo exportado: dataset_completo_{mode}.csv')
 
     print(f"Extração concluída! Total de amostras ({mode}): {len(features)}")
 
