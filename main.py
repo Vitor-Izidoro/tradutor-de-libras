@@ -186,19 +186,43 @@ if __name__ == "__main__":
             recognize_sign(fonte_de_video, tipo_modelo=modelo_teste)
             
         elif escolha == '3':
-            print("\n--- TESTE VIA VÍDEO ---")
+            print("\n--- TESTE VIA VÍDEO (EM LOTE) ---")
             print("Qual modelo deseja usar para o teste?")
             print("[1] Random Forest  [2] LSTM  [3] KNN")
             modelo_teste = input("Escolha (1, 2 ou 3): ").strip()
             
-            print("\nDica: Use um vídeo da sua nova pasta de testes.")
-            fonte_de_video = input("Digite o caminho do vídeo (ex: videos/teste/agarrar/video_teste.mp4): ").strip()
+            print("\nDica: Pressione ENTER para usar a pasta padrão (videos/teste).")
+            pasta_teste = input("Digite o caminho da pasta (ex: videos/teste): ").strip()
             
-            if os.path.exists(fonte_de_video):
-                print(f"Analisando vídeo '{fonte_de_video}' com o modelo {modelo_teste}...")
-                recognize_sign(fonte_de_video, tipo_modelo=modelo_teste)
+            # Se o usuário apenas apertar Enter, assume a pasta padrão
+            if not pasta_teste:
+                pasta_teste = "videos/teste"
+            
+            # Verifica se o caminho existe e é um diretório
+            if os.path.exists(pasta_teste) and os.path.isdir(pasta_teste):
+                print(f"\nBuscando vídeos no diretório: {pasta_teste}")
+                videos_encontrados = []
+                
+                # os.walk percorre a pasta principal e todas as subpastas
+                for root, dirs, files in os.walk(pasta_teste):
+                    for file in files:
+                        if file.lower().endswith(('.mp4', '.avi', '.mov')):
+                            videos_encontrados.append(os.path.join(root, file))
+                
+                if not videos_encontrados:
+                    print(f"Aviso: Nenhum vídeo foi encontrado dentro de '{pasta_teste}'.")
+                else:
+                    print(f"Total de {len(videos_encontrados)} vídeo(s) encontrado(s). Iniciando testes...\n")
+                    
+                    # Itera sobre cada vídeo encontrado na pasta
+                    for caminho_video in videos_encontrados:
+                        print(f"\n" + "-"*40)
+                        print(f"-> Analisando vídeo: {caminho_video}")
+                        
+                        # Chama a sua função de reconhecimento para o vídeo atual
+                        recognize_sign(caminho_video, tipo_modelo=modelo_teste)
             else:
-                print(f"Erro: O arquivo '{fonte_de_video}' não foi encontrado.")
+                print(f"Erro: O diretório '{pasta_teste}' não foi encontrado ou não é uma pasta válida.")
         elif escolha == '4':
             comparar_pipelines()
 
