@@ -9,6 +9,8 @@ from model_training import train_random_forest, train_lstm, train_knn
 from sign_recognition import recognize_sign
 from feature_extraction import extract_features_from_directory 
 from import_from_csv import import_from_csv
+from matriz_confusao import avaliar_rf_knn, avaliar_lstm
+
 
 def extrair_dataset_completo(videos, pasta_destino_frames):
     """Função auxiliar que varre diretórios e extrai frames automaticamente"""
@@ -154,6 +156,29 @@ def comparar_pipelines():
     print(f"Acurácia via CSV: {acc_csv * 100:.2f}%")
     print("="*30)
 
+def executar_matriz_confusao():
+    print("\n--- MATRIZ DE CONFUSÃO ---")
+    print("[1] Random Forest")
+    print("[2] LSTM")
+    print("[3] KNN")
+    print("[4] Gerar todas")
+
+    escolha = input("\nEscolha uma opção (1 a 4): ").strip()
+
+    if escolha == "1":
+        avaliar_rf_knn("Random Forest", "models/sign_model.pkl")
+    elif escolha == "2":
+        avaliar_lstm()
+    elif escolha == "3":
+        avaliar_rf_knn("KNN", "models/knn_sign_model.pkl")
+    elif escolha == "4":
+        avaliar_rf_knn("Random Forest", "models/sign_model.pkl")
+        avaliar_rf_knn("KNN", "models/knn_sign_model.pkl")
+        avaliar_lstm()
+    else:
+        print("Opção inválida.")
+
+
 
 if __name__ == "__main__":
     
@@ -166,6 +191,7 @@ if __name__ == "__main__":
         print("[3] Testar reconhecimento via Vídeo (Dados de Teste)")
         print("[4] Comparar pipeline direto vs pipeline via CSV")
         print("[5] Extrair frames de vídeos em lote (Treino e Teste)")
+        print("[6] Gerar matriz de confusão")
         print("[0] Sair do programa")
         print("="*50)
         
@@ -228,6 +254,9 @@ if __name__ == "__main__":
 
         elif escolha == '5':
             executar_extracao_de_frames()
+        
+        elif escolha == '6':
+            executar_matriz_confusao()
             
         elif escolha == '0':
             print("\nEncerrando o sistema. Até logo!")
