@@ -1,0 +1,19 @@
+RELATORIO - TESTE DO MEDIAPIPE NO MUNDO REAL
+Data/hora: 10/05/2026 21:12:38
+Fonte testada: 0
+Total de frames analisados: 1024
+Frames com mao detectada: 870
+Taxa de deteccao: 84.96%
+FPS medio aproximado: 24.48
+Status: OK
+
+Criterio:
+- OK: mao detectada em pelo menos 60% dos frames.
+- ATENCAO: deteccao baixa.
+
+Se o status for ATENCAO, verificar:
+- iluminacao;
+- distancia da camera;
+- enquadramento da mao;
+- fundo muito poluido;
+- camera com baixa qualidade.
