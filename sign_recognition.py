@@ -1,17 +1,34 @@
 import mediapipe as mp
 import cv2
 import pickle
-import numpy as np 
+import numpy as np
+from collections import Counter
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
+
+def extrair_landmarks(hand_landmarks):
+    """
+    Extrai e normaliza landmarks com eixo Z, relativo ao pulso.
+    Deve ser idêntico ao usado no feature_extraction.py.
+    """
+    pulso = hand_landmarks[0]
+    landmarks = []
+    for lm in hand_landmarks:
+        landmarks.append(lm.x - pulso.x)
+        landmarks.append(lm.y - pulso.y)
+        landmarks.append(lm.z - pulso.z)
+    return landmarks
+
+
 def recognize_sign(video_path, tipo_modelo='1'):
     """
     Reconhece gestos em um vídeo usando o modelo selecionado (RF, LSTM ou KNN).
     """
+    scaler = None
     # 1. CARREGAMENTO DO MODELO ESPECÍFICO
     if tipo_modelo == '1':
         print("Carregando modelo Random Forest...")
@@ -53,6 +70,9 @@ def recognize_sign(video_path, tipo_modelo='1'):
         
     frame_idx = 0
     gesto_atual = "Aguardando sinal..."
+    
+    # --- NOVIDADE 1: Variável para guardar todos os chutes do modelo ---
+    historico_predicoes = []
 
     options = HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path="hand_landmarker.task"),
@@ -60,44 +80,51 @@ def recognize_sign(video_path, tipo_modelo='1'):
     )
     
     with HandLandmarker.create_from_options(options) as hand_landmarker:
+        
+        # Variável de estado para o Forward Fill (mantendo a sua última atualização do código)
+        last_known_landmarks = [0.0] * 63 
+        
         while cap.isOpened():
             ret, frame = cap.read()
             
-            # Verificação se o vídeo acabou ou falhou
             if not ret:
-                if frame_idx == 0:
-                    print("\n[!] ERRO DE CODEC: O OpenCV encontrou o arquivo, mas não conseguiu decodificar as imagens.")
-                    print("Tente converter o vídeo para .mp4 padrão (H.264) ou testar com outro arquivo.")
-                else:
-                    print(f"\nFim do vídeo alcançado. Total de frames lidos: {frame_idx}")
                 break
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
             
             timestamp_ms = int((frame_idx / fps) * 1000)
-            
             results = hand_landmarker.detect_for_video(mp_image, timestamp_ms)
 
             # 3. LÓGICA DE EXTRAÇÃO E PREVISÃO
             if results.hand_landmarks:
                 hand_landmarks = results.hand_landmarks[0]
                 landmarks = []
+                
+                base_x = hand_landmarks[0].x
+                base_y = hand_landmarks[0].y
+                base_z = hand_landmarks[0].z
+                
                 for lm in hand_landmarks:
-                    landmarks.append(lm.x)
-                    landmarks.append(lm.y)
+                    landmarks.append(lm.x - base_x)
+                    landmarks.append(lm.y - base_y)
+                    landmarks.append(lm.z - base_z)
+                
+                last_known_landmarks = landmarks 
                 
                 if modo_avaliacao == "estatico":
                     prediction = model.predict([landmarks])
                     gesto_atual = prediction[0]
-                    # Print no terminal para facilitar a depuração
                     print(f"Frame {frame_idx:03d} | Gesto detectado: {gesto_atual}")
+                    
+                    # --- NOVIDADE 2: Salva o chute estático no histórico ---
+                    historico_predicoes.append(gesto_atual)
 
                 elif modo_avaliacao == "continuo":
                     sequence_buffer.append(landmarks)
             else:
                 if modo_avaliacao == "continuo":
-                    sequence_buffer.append([0.0] * 42)
+                    sequence_buffer.append(last_known_landmarks)
 
             if modo_avaliacao == "continuo" and len(sequence_buffer) == sequence_length:
                 input_data = np.expand_dims(sequence_buffer, axis=0)
@@ -107,21 +134,39 @@ def recognize_sign(video_path, tipo_modelo='1'):
                 gesto_atual = label_encoder.inverse_transform([predicted_idx])[0]
                 print(f"Frame {frame_idx:03d} | Movimento traduzido: {gesto_atual}")
                 
+                # --- NOVIDADE 3: Salva o chute contínuo (LSTM) no histórico ---
+                historico_predicoes.append(gesto_atual)
+                
                 sequence_buffer.pop(0)
 
             frame_idx += 1
 
-            # 4. RENDERIZAÇÃO NA TELA COM VELOCIDADE CORRIGIDA
+            # 4. RENDERIZAÇÃO NA TELA
             cv2.putText(frame, f"Traducao: {gesto_atual}", (10, 50), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-            
             cv2.imshow("Reconhecimento de Sinais - Tradutor", frame)
             
-            # Calcula o tempo de espera correto para o vídeo não rodar "acelerado"
             tempo_espera_ms = int(1000 / fps)
             if cv2.waitKey(tempo_espera_ms) & 0xFF == ord('q'):
-                print("Teste interrompido pelo usuário.")
                 break
 
     cap.release()
     cv2.destroyAllWindows()
+
+    # --- NOVIDADE 4: Cálculo e impressão da porcentagem de certeza ao final do vídeo ---
+    if historico_predicoes:
+        total_chutes = len(historico_predicoes)
+        contagem = Counter(historico_predicoes)
+        
+        print("\n" + "="*40)
+        print("  RESULTADO CONSOLIDADO DO VÍDEO  ")
+        print("="*40)
+        print(f"Total de predições realizadas: {total_chutes}")
+        
+        # O most_common() já ordena do gesto que apareceu mais vezes para o que apareceu menos
+        for gesto, qtd in contagem.most_common():
+            porcentagem = (qtd / total_chutes) * 100
+            print(f" -> {gesto}: {porcentagem:.2f}% de predominância ({qtd} frames)")
+        print("="*40 + "\n")
+    else:
+        print("\nNenhuma predição pôde ser feita neste vídeo.")
