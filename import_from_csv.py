@@ -3,18 +3,14 @@ import numpy as np
 
 def import_from_csv(filepath : str, mode : str ='rf'):
     df = pd.read_csv(filepath)
-    # Como os dados gerados para o RF já são 2D
-    # A importação é simples, apenas separa as
-    # features das labels
-    if mode == 'rf':
-        labels = df['target']
-        features = df.drop('target', axis=1)
-        return features , labels
     
-    # Para o LSTM é necessário ordenar novamente através
-    # dos índices de amostra e frames
-    # X amostras, cada amostra tem Y frames, cada frame tem 42 features
-    elif mode =='lstm':
+    if mode == 'rf':
+        # Converter explicitamente para numpy para garantir tipo correto
+        labels = df['target'].values
+        features = df.drop('target', axis=1).values
+        return features, labels
+    
+    elif mode == 'lstm':
         feature_cols = [col for col in df.columns if col not in ['target', 'frame_idx', 'sample_idx']]
         unique_samples = df['sample_idx'].unique()
         num_samples = len(unique_samples)

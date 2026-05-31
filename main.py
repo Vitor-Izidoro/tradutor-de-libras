@@ -2,6 +2,8 @@ import sys
 import os
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 from data_preprocessing import extract_frames
 from model_training import train_random_forest, train_lstm, train_knn
@@ -47,47 +49,107 @@ def _perguntar_augmentation():
             n = int(input("Quantas variacoes por amostra? [padrao: 5, recomendado: 5-10]: ").strip() or "5")
         except ValueError:
             n = 5
-        print(f"Augmentation ativada: {n} variacoes por amostra (~{n+1}x mais dados)")
+        print(f"Augmentation ativada: {n} variacoes por amostra (~{n + 1}x mais dados)")
+        print("IMPORTANTE: a augmentation sera aplicada APENAS nos dados de treino (apos o split).")
         return True, n
     return False, 0
 
 
+def gerar_dataset_csv():
+    """Gera e salva o dataset SEM augmentation (dados originais puros)."""
+    dataset_root = "dataset/frames_treino"
+    print("\n--- GERAR DATASET (FEATURES ORIGINAIS) ---")
+    print("Para quais modelos você deseja gerar os dados?")
+    print("[1] Modelos Estáticos (Random Forest e KNN)")
+    print("[2] Modelo Contínuo (LSTM)")
+    modo = input("Escolha (1 ou 2): ").strip()
+
+    if modo not in ['1', '2']:
+        print("Opção inválida.")
+        return
+
+    modo_extracao = "rf" if modo == '1' else "lstm"
+    csv_path = f"dataset/dataset_completo_{modo_extracao}.csv"
+
+    if os.path.exists(csv_path):
+        print(f"\n⚠️  AVISO: O arquivo {csv_path} já existe!")
+        confirmacao = input("Deseja SOBRESCREVER com novos dados? (s/n): ").strip().lower()
+        if confirmacao != 's':
+            print("Operação cancelada.")
+            return
+
+    print(f"\nExtração no modo {modo_extracao.upper()} (sem augmentation — ocorre no treino)...")
+    extract_features_from_directory(
+        dataset_root,
+        mode=modo_extracao,
+        export_dataframe=True,
+    )
+    print(f"\n[OK] Dataset salvo em '{csv_path}'!")
+    print("DICA: ao treinar com este CSV, escolha 'usar augmentation' para dados mais robustos.")
+
+
 def executar_treinamento():
+    """Lógica de escolha da fonte de dados e modelo de treinamento"""
     dataset_root = "dataset/frames_treino"
 
     print("\n--- INICIANDO PROCESSO DE TREINAMENTO ---")
-    print("1. Escolha a arquitetura do modelo:")
-    print("[1] Random Forest (estatico, frame-a-frame)")
-    print("[2] LSTM (dinamico, sequencias temporais)")
-    print("[3] KNN (estatico, frame-a-frame)")
+    print("1. Escolha a arquitetura do modelo primeiro:")
+    print("[1] Random Forest (Reconhecimento estático frame-a-frame)")
+    print("[2] LSTM (Reconhecimento contínuo de movimento)")
+    print("[3] KNN (Reconhecimento estático frame-a-frame)")
 
     tipo_modelo = input("\nEscolha (1, 2 ou 3): ").strip()
+
     if tipo_modelo not in ['1', '2', '3']:
-        print("Opcao invalida. Cancelando.")
+        print("Opção inválida. Cancelando treinamento.")
         return
 
     modo_extracao = "rf" if tipo_modelo in ['1', '3'] else "lstm"
-    augmentar, n_aumentos = _perguntar_augmentation()
 
-    print(f"\n2. Extraindo features no modo {modo_extracao.upper()}...")
-    features, labels = extract_features_from_directory(
-        dataset_root,
-        mode=modo_extracao,
-        augmentar=augmentar,
-        n_aumentos=n_aumentos
-    )
+    print("\n2. Origem dos dados de treinamento:")
+    print("[1] Extrair agora (Processar as imagens na hora, sem salvar)")
+    print("[2] Carregar Dataset pré-gerado (Ler o arquivo CSV salvo)")
+    origem = input("Escolha (1 ou 2): ").strip()
 
-    print("\n3. Iniciando Treinamento...")
-    if len(features) < 2:
-        print("Erro: dados insuficientes para treino.")
+    if origem == '1':
+        print(f"\nExtraindo features no modo {modo_extracao.upper()}...")
+        features, labels = extract_features_from_directory(
+            dataset_root,
+            mode=modo_extracao,
+        )
+    elif origem == '2':
+        csv_path = f"dataset/dataset_completo_{modo_extracao}.csv"
+        if not os.path.exists(csv_path):
+            print(f"\nERRO: O arquivo {csv_path} não foi encontrado.")
+            print("Você precisa rodar a opção 'Gerar Dataset' primeiro!")
+            return
+        print(f"\nCarregando dados do arquivo {csv_path}...")
+        features, labels = import_from_csv(csv_path, mode=modo_extracao)
+    else:
+        print("Opção inválida.")
         return
 
+    # Augmentation perguntada AQUI — será aplicada dentro do treino, após o split
+    augmentar, n_aumentos = _perguntar_augmentation()
+
+    print("\n3. Iniciando Treinamento do Modelo...")
     if tipo_modelo == '1':
-        train_random_forest(features, labels)
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do Random Forest.")
+        else:
+            train_random_forest(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
+
     elif tipo_modelo == '2':
-        train_lstm(features, labels)
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do LSTM.")
+        else:
+            train_lstm(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
+
     elif tipo_modelo == '3':
-        train_knn(features, labels)
+        if len(features) < 2:
+            print("Erro: Dados insuficientes para treino do KNN.")
+        else:
+            train_knn(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
 
 
 def comparar_pipelines():
@@ -104,13 +166,11 @@ def comparar_pipelines():
     modo_extracao = "rf" if tipo_modelo in ['1', '3'] else "lstm"
     augmentar, n_aumentos = _perguntar_augmentation()
 
-    print(f"\n1. Extraindo features e gerando CSV no modo {modo_extracao.upper()}...")
+    print(f"\n1. Extraindo features em memória no modo {modo_extracao.upper()}...")
     features_direto, labels_direto = extract_features_from_directory(
         dataset_root,
         mode=modo_extracao,
-        export_dataframe=True,
-        augmentar=augmentar,
-        n_aumentos=n_aumentos
+        export_dataframe=False,
     )
 
     if len(features_direto) < 2:
@@ -118,51 +178,90 @@ def comparar_pipelines():
         return
 
     nome_padrao = f"dataset/dataset_completo_{modo_extracao}.csv"
-    csv_path = input(f"\nConfirme o caminho do CSV [{nome_padrao}]: ").strip() or nome_padrao
+    csv_path = input(f"\nCaminho do CSV para comparação [{nome_padrao}]: ").strip() or nome_padrao
 
-    print("\n2. Treinando pipeline direto (RAM)...")
-    if tipo_modelo == '1':
-        acc_direto = train_random_forest(features_direto, labels_direto, model_path="models/model_direto.pkl", return_accuracy=True)
-    elif tipo_modelo == '2':
-        acc_direto = train_lstm(features_direto, labels_direto, model_path="models/lstm_direto.h5", encoder_path="models/encoder_direto.pkl", return_accuracy=True)
-    elif tipo_modelo == '3':
-        acc_direto = train_knn(features_direto, labels_direto, model_path="models/knn_direto.pkl", return_accuracy=True)
-
-    print("\n3. Lendo dados do CSV...")
     if not os.path.exists(csv_path):
-        print(f"ERRO: {csv_path} nao encontrado!")
+        print(f"\n❌ ERRO: {csv_path} não encontrado!")
+        print(f"Você precisa gerar o CSV primeiro usando a opção [7]!")
         return
+
+    print(f"\n2. Carregando dados do CSV...")
     X_csv, y_csv = import_from_csv(csv_path, mode=modo_extracao)
+
+    print("\n3. Treinando pipeline direto (dados em RAM)...")
+    if tipo_modelo == '1':
+        acc_direto = train_random_forest(
+            features_direto, labels_direto,
+            model_path="models/model_direto.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
+    elif tipo_modelo == '2':
+        acc_direto = train_lstm(
+            features_direto, labels_direto,
+            model_path="models/lstm_direto.h5",
+            encoder_path="models/encoder_direto.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
+    elif tipo_modelo == '3':
+        acc_direto = train_knn(
+            features_direto, labels_direto,
+            model_path="models/knn_direto.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
 
     print("\n4. Treinando pipeline via CSV...")
     if tipo_modelo == '1':
-        acc_csv = train_random_forest(X_csv, y_csv, model_path="models/model_csv.pkl", return_accuracy=True)
+        acc_csv = train_random_forest(
+            X_csv, y_csv,
+            model_path="models/model_csv.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
     elif tipo_modelo == '2':
-        acc_csv = train_lstm(X_csv, y_csv, model_path="models/lstm_csv.h5", encoder_path="models/encoder_csv.pkl", return_accuracy=True)
+        acc_csv = train_lstm(
+            X_csv, y_csv,
+            model_path="models/lstm_csv.h5",
+            encoder_path="models/encoder_csv.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
     elif tipo_modelo == '3':
-        acc_csv = train_knn(X_csv, y_csv, model_path="models/knn_csv.pkl", return_accuracy=True)
+        acc_csv = train_knn(
+            X_csv, y_csv,
+            model_path="models/knn_csv.pkl",
+            return_accuracy=True,
+            augmentar=augmentar, n_aumentos=n_aumentos,
+        )
 
-    print("\n" + "="*30)
+    print("\n" + "=" * 30)
     print("--- RESULTADO ---")
     print(f"Acuracia Direto:   {acc_direto * 100:.2f}%")
     print(f"Acuracia via CSV:  {acc_csv * 100:.2f}%")
-    print("="*30)
+    print("=" * 30)
 
 
 if __name__ == "__main__":
     while True:
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("   SISTEMA DE RECONHECIMENTO DE SINAIS (LIBRAS)")
-        print("="*50)
+        print("=" * 50)
         print("[1] Treinar modelo")
         print("[2] Testar via Webcam")
         print("[3] Testar via Video (pasta de teste)")
         print("[4] Comparar pipeline direto vs CSV")
         print("[5] Extrair frames de videos em lote")
-        print("[0] Sair")
-        print("="*50)
+        print("[6] Gerar Matriz de Confusão")
+        print("[7] Gerar Dataset (Salvar CSV)")
+        print("[0] Sair do programa")
+        print("=" * 50)
+        print("\n DICA: Opção [7] gera o CSV com dados originais.")
+        print("       A augmentation ocorre automaticamente no treino [1].")
+        print("=" * 50)
 
-        escolha = input("\nEscolha (0 a 5): ").strip()
+        escolha = input("\nEscolha uma opção (0 a 7): ").strip()
 
         if escolha == '1':
             executar_treinamento()
@@ -188,9 +287,23 @@ if __name__ == "__main__":
                     print(f"Nenhum video encontrado em '{pasta_teste}'.")
                 else:
                     print(f"{len(videos_encontrados)} video(s) encontrado(s).")
+
+                    resultados_salvos = []
+
                     for caminho_video in videos_encontrados:
                         print(f"\n-> Analisando: {caminho_video}")
-                        recognize_sign(caminho_video, tipo_modelo=modelo_teste)
+                        predicao_final = recognize_sign(caminho_video, tipo_modelo=modelo_teste)
+
+                        if predicao_final:
+                            resultados_salvos.append(predicao_final)
+
+                    arquivo_txt = f"predicoes_modelo_{modelo_teste}.txt"
+                    with open(arquivo_txt, "w", encoding="utf-8") as f:
+                        for resultado in resultados_salvos:
+                            f.write(resultado + "\n")
+
+                    print(f"\n[OK] Bateria de testes concluída!")
+                    print(f"As predições foram salvas no arquivo '{arquivo_txt}'.")
             else:
                 print(f"Diretorio '{pasta_teste}' nao encontrado.")
 
@@ -200,8 +313,60 @@ if __name__ == "__main__":
         elif escolha == '5':
             executar_extracao_de_frames()
 
+        elif escolha == '6':
+            print("\n--- GERAR MATRIZ DE CONFUSÃO ---")
+            print("[1] Random Forest  [2] LSTM  [3] KNN")
+            modelo_matriz = input("De qual algoritmo você deseja ler os resultados? (1, 2 ou 3): ").strip()
+
+            arquivo_txt = f"predicoes_modelo_{modelo_matriz}.txt"
+
+            if not os.path.exists(arquivo_txt):
+                print(f"\nErro: Arquivo '{arquivo_txt}' não encontrado.")
+                print("Você precisa rodar a bateria de testes (Opção 3) para este modelo primeiro!")
+                continue
+
+            with open(arquivo_txt, "r", encoding="utf-8") as f:
+                y_pred = [linha.strip() for linha in f.readlines() if linha.strip()]
+
+            print(f"\nForam encontradas {len(y_pred)} predições salvas deste modelo.")
+
+            print("\nDigite a lista com as classes REAIS na ordem em que os vídeos foram analisados.")
+            print("Formato esperado: separado por vírgulas (ex: ola, ola, obrigado, desculpa)")
+            lista_usuario = input("Sua lista de gabarito: ").strip()
+
+            if not lista_usuario:
+                print("Operação cancelada.")
+                continue
+
+            y_true = [item.strip() for item in lista_usuario.split(",")]
+
+            if len(y_true) != len(y_pred):
+                print(f"\nERRO DE TAMANHO!")
+                print(f"Sua lista tem {len(y_true)} rótulos, mas o arquivo tem {len(y_pred)} vídeos processados.")
+                continue
+
+            classes_unicas = sorted(list(set(y_true + y_pred)))
+
+            print("\nGerando gráfico...")
+            cm = confusion_matrix(y_true, y_pred, labels=classes_unicas)
+
+            fig, ax = plt.subplots(figsize=(10, 8))
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes_unicas)
+            disp.plot(cmap=plt.cm.Blues, ax=ax, xticks_rotation=45, values_format='d')
+            plt.xticks(ha='right')
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            plt.title(f"Matriz de Confusão - Modelo {modelo_matriz}", fontsize=14, pad=20)
+            plt.xlabel('Sinal Traduzido (Predição)', fontsize=12, labelpad=10)
+            plt.ylabel('Sinal Real (Gabarito)', fontsize=12, labelpad=10)
+            plt.tight_layout()
+            plt.show()
+
+        elif escolha == '7':
+            gerar_dataset_csv()
+
         elif escolha == '0':
             print("\nEncerrando. Ate logo!")
             break
+
         else:
             print("\nOpcao invalida.")

@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.cluster import KMeans
 import pickle
 import os
 from sklearn.neighbors import KNeighborsClassifier
@@ -10,20 +11,40 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.utils.class_weight import compute_class_weight
 
 
-def train_random_forest(features, labels, model_path="models/sign_model.pkl", return_accuracy=False):
+def train_random_forest(
+    features, labels,
+    model_path="models/sign_model.pkl",
+    return_accuracy=False,
+    augmentar=False,
+    n_aumentos=5,
+):
     """
     Treina um modelo Random Forest para gestos estáticos (frame-a-frame).
     Espera features no formato 2D: (amostras, features_por_frame)
+
+    augmentar : bool
+        Se True, aplica data augmentation APENAS nos dados de treino (após o split),
+        evitando data leakage.
     """
-    # CORREÇÃO: stratify garante que todas as classes apareçam no treino e no teste.
-    # Com poucos dados, sem isso, uma classe pode ficar só no teste e o modelo nunca a aprende.
+    X = np.array(features)
+    y = np.array(labels)
+
     X_train, X_test, y_train, y_test = train_test_split(
-        features, labels, test_size=0.2, random_state=42, stratify=labels
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    # CORREÇÃO: n_estimators=200 e class_weight='balanced' ajudam com datasets pequenos e desbalanceados.
+    if augmentar:
+        from landmark_augmentation import gerar_amostras_aumentadas
+        X_aug, y_aug = gerar_amostras_aumentadas(
+            X_train.tolist(), y_train.tolist(), mode='rf', n_aumentos=n_aumentos
+        )
+        X_train = np.array(X_aug)
+        y_train = np.array(y_aug)
+        print(f"Treino após augmentation: {len(X_train)} amostras")
+
     model = RandomForestClassifier(n_estimators=200, class_weight='balanced', random_state=42)
     model.fit(X_train, y_train)
 
@@ -39,27 +60,99 @@ def train_random_forest(features, labels, model_path="models/sign_model.pkl", re
         return accuracy
 
 
-def train_knn(features, labels, model_path="models/knn_sign_model.pkl", return_accuracy=False):
+def _aplicar_kmeans_temporal(sequences, n_clusters):
     """
-    Treina um modelo KNN para gestos estáticos (frame-a-frame).
-    Espera features no formato 2D: (amostras, features_por_frame)
+    Implementação do pré-processamento K-Means temporal descrito em Caiafa et al. (SBrT 2023).
+
+    Para cada sequência de frames (N × F):
+      1. Aplica K-Means com M centróides
+      2. Ordena os centróides cronologicamente pela mediana do índice dos frames
+         assignados a cada centróide (preserva a ordem temporal do gesto)
+      3. Achata para um vetor 1D de tamanho M × F
+
+    O resultado é uma representação de tamanho fixo independente do comprimento
+    original do vídeo, sensível à ordem dos movimentos.
     """
-    # CORREÇÃO: stratify para garantir representação balanceada no split.
+    result = []
+    for seq in sequences:
+        seq_array = np.array(seq, dtype=float)
+        n_frames = len(seq_array)
+        m = min(n_clusters, n_frames)
+
+        km = KMeans(n_clusters=m, random_state=42, n_init=10)
+        km.fit(seq_array)
+        assignments = km.labels_
+
+        centroid_order = []
+        for c in range(m):
+            frame_idxs = np.where(assignments == c)[0]
+            median_idx = float(np.median(frame_idxs)) if len(frame_idxs) > 0 else float(c)
+            centroid_order.append((median_idx, c))
+        centroid_order.sort(key=lambda x: x[0])
+
+        sorted_centroids = km.cluster_centers_[[c for _, c in centroid_order]]
+
+        if m < n_clusters:
+            pad = np.zeros((n_clusters - m, seq_array.shape[1]))
+            sorted_centroids = np.vstack([sorted_centroids, pad])
+
+        result.append(sorted_centroids.flatten())
+
+    return np.array(result)
+
+
+def train_knn(
+    features, labels,
+    model_path="models/knn_sign_model.pkl",
+    return_accuracy=False,
+    n_clusters=10,
+    augmentar=False,
+    n_aumentos=5,
+):
+    """
+    Treina KNN com pré-processamento K-Means temporal (Caiafa et al., SBrT 2023).
+
+    augmentar : bool
+        Se True, aplica data augmentation APENAS nos dados de treino (após o split).
+    """
+    features_array = np.array(features)
+
+    if features_array.ndim == 3:
+        usa_kmeans = True
+        seq_len = features_array.shape[1]
+    else:
+        usa_kmeans = False
+        seq_len = None
+
     X_train, X_test, y_train, y_test = train_test_split(
-        features, labels, test_size=0.2, random_state=42, stratify=labels
+        features_array, labels, test_size=0.2, random_state=42, stratify=labels
     )
 
-    # CORREÇÃO: KNN é sensível à escala das features. O StandardScaler garante que
-    # coordenadas com valores maiores não dominem o cálculo de distância.
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    if augmentar:
+        from landmark_augmentation import gerar_amostras_aumentadas
+        mode = 'lstm' if usa_kmeans else 'rf'
+        X_aug, y_aug = gerar_amostras_aumentadas(
+            X_train.tolist(), list(y_train), mode=mode, n_aumentos=n_aumentos
+        )
+        X_train = np.array(X_aug)
+        y_train = np.array(y_aug)
+        print(f"Treino após augmentation: {len(X_train)} amostras")
 
-    # CORREÇÃO: n_neighbors=3 é mais adequado com datasets pequenos.
-    # Com poucos dados por classe, k=5 pode consultar vizinhos da classe errada.
-    # Usamos pesos por distância: vizinhos mais próximos têm mais influência.
-    num_classes = len(set(labels))
-    k = max(1, min(3, len(X_train) // num_classes))
+    if usa_kmeans:
+        print(f"K-Means temporal: {n_clusters} centróides por janela de {seq_len} frames...")
+        X_train_2d = _aplicar_kmeans_temporal(X_train, n_clusters)
+        X_test_2d = _aplicar_kmeans_temporal(X_test, n_clusters)
+    else:
+        print("Modo direto (frame-a-frame, sem K-Means temporal)...")
+        X_train_2d = X_train
+        X_test_2d = X_test
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train_2d)
+    X_test_scaled = scaler.transform(X_test_2d)
+
+    num_classes = len(set(list(y_train) + list(y_test)))
+    k = max(1, min(5, len(X_train_scaled) // num_classes))
     print(f"KNN usando k={k} (ajustado ao tamanho do dataset)")
 
     model = KNeighborsClassifier(n_neighbors=k, weights='distance', metric='euclidean')
@@ -69,11 +162,15 @@ def train_knn(features, labels, model_path="models/knn_sign_model.pkl", return_a
     print(f"Acurácia do KNN: {accuracy * 100:.2f}%")
 
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
-
-    # CORREÇÃO: salva o scaler junto com o modelo, pois ele é necessário na inferência.
     with open(model_path, "wb") as f:
-        pickle.dump({'model': model, 'scaler': scaler}, f)
-    print(f"Modelo KNN (+ scaler) salvo em {model_path}")
+        pickle.dump({
+            'model': model,
+            'scaler': scaler,
+            'n_clusters': n_clusters,
+            'usa_kmeans': usa_kmeans,
+            'sequence_length': seq_len,
+        }, f)
+    print(f"Modelo KNN salvo em {model_path}")
 
     if return_accuracy:
         return accuracy
@@ -84,11 +181,17 @@ def train_lstm(
     labels,
     model_path="models/lstm_sign_model.h5",
     encoder_path="models/label_encoder.pkl",
-    return_accuracy=False
+    return_accuracy=False,
+    augmentar=False,
+    n_aumentos=5,
 ):
     """
     Treina um modelo LSTM para reconhecimento de gestos dinâmicos (sequências temporais).
     Espera features no formato 3D: (amostras, frames, features_por_frame)
+
+    augmentar : bool
+        Se True, aplica data augmentation APENAS nos dados de treino (após o split),
+        evitando data leakage.
     """
     X = np.array(features)
     y = np.array(labels)
@@ -102,27 +205,33 @@ def train_lstm(
     num_amostras = X.shape[0]
     num_classes = len(set(labels))
 
-    # CORREÇÃO: com poucos dados, um test_size fixo de 0.2 pode deixar menos de
-    # 1 amostra por classe no teste. Garantimos pelo menos 1 por classe.
     test_size = max(num_classes / num_amostras, 0.2)
-    test_size = min(test_size, 0.3)  # nunca mais que 30%
+    test_size = min(test_size, 0.3)
 
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
-    y_categorical = to_categorical(y_encoded)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y_categorical, test_size=test_size, random_state=42, stratify=y_encoded
+    # Split sobre os rótulos originais (string) para poder augmentar o treino depois
+    X_train, X_test, y_train_str, y_test_str = train_test_split(
+        X, y, test_size=test_size, random_state=42, stratify=y_encoded
     )
 
-    # CORREÇÃO: batch_size deve ser <= número de amostras de treino.
-    # Com datasets pequenos, usar o total de amostras ou um valor pequeno como 8.
+    if augmentar:
+        from landmark_augmentation import gerar_amostras_aumentadas
+        X_aug, y_aug = gerar_amostras_aumentadas(
+            X_train.tolist(), y_train_str.tolist(), mode='lstm', n_aumentos=n_aumentos
+        )
+        X_train = np.array(X_aug)
+        y_train_str = np.array(y_aug)
+        print(f"Treino após augmentation: {len(X_train)} amostras")
+
+    # Codificar labels após augmentation (o encoder já foi fitado no dataset completo)
+    y_train = to_categorical(label_encoder.transform(y_train_str))
+    y_test = to_categorical(label_encoder.transform(y_test_str))
+
     batch_size = min(8, len(X_train))
     print(f"LSTM usando batch_size={batch_size} (ajustado ao tamanho do dataset)")
 
-    # CORREÇÃO: removida a activation='relu' das camadas LSTM.
-    # LSTMs usam tanh internamente — forçar relu degrada o aprendizado de sequências.
-    # Adicionado recurrent_dropout para regularização dentro da célula recorrente.
     model = Sequential([
         LSTM(64, return_sequences=True,
              input_shape=(X_train.shape[1], X_train.shape[2]),
@@ -141,8 +250,6 @@ def train_lstm(
         metrics=['categorical_accuracy']
     )
 
-    # CORREÇÃO: EarlyStopping evita overfitting em datasets pequenos.
-    # Com 50 epochs fixos e poucos dados, o modelo memoriza ao invés de aprender.
     early_stop = EarlyStopping(
         monitor='val_loss',
         patience=10,
@@ -150,13 +257,25 @@ def train_lstm(
         verbose=1
     )
 
+    # Pesos por classe: compensa desequilíbrio sem precisar de mais dados.
+    # Sem isso, classes com mais sequências (ex: acabar=72) dominam o gradiente
+    # e o modelo aprende a ignorar classes pequenas (ex: agora=12, cego=12).
+    classes_unicas = np.unique(y_train_str)
+    pesos_array = compute_class_weight('balanced', classes=classes_unicas, y=y_train_str)
+    # Keras espera dict {índice_int: peso}, onde índice = posição no label_encoder
+    class_weight_dict = {
+        int(label_encoder.transform([c])[0]): float(p)
+        for c, p in zip(classes_unicas, pesos_array)
+    }
+
     print("\nIniciando treinamento do LSTM...")
     model.fit(
         X_train, y_train,
-        epochs=100,          # mais epochs, mas o EarlyStopping para cedo se necessário
+        epochs=100,
         batch_size=batch_size,
         validation_data=(X_test, y_test),
         callbacks=[early_stop],
+        class_weight=class_weight_dict,
         verbose=1
     )
 

@@ -2,29 +2,104 @@ import os
 import mediapipe as mp
 import pandas as pd
 import numpy as np
-from landmark_augmentation import gerar_amostras_aumentadas
 
 BaseOptions = mp.tasks.BaseOptions
 HandLandmarker = mp.tasks.vision.HandLandmarker
 HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-NUM_FEATURES = 63  # 21 landmarks × (x, y, z)
+NUM_FEATURES = 126  # 21 landmarks × 3 coords × 2 mãos
+
+_N_MAO = 63               # features de uma mão
+_ZEROS_MAO = [0.0] * _N_MAO  # placeholder para mão ausente
 
 
-def _extrair_landmarks(hand_landmarks):
+def _normalizar_mao(hand_landmarks):
     """
-    Extrai e normaliza os landmarks relativos ao pulso (landmark 0), com eixo Z.
-    A normalização garante que o modelo aprende o formato do gesto,
-    não a posição da mão na tela.
+    Normaliza os landmarks de UMA mão (63 features).
+
+    1. Subtrai o pulso (lm 0) em X, Y e Z → remove posição absoluta.
+    2. Divide X e Y pela largura da palma em 2D (distância XY entre a base do
+       indicador lm 5 e a base do mínimo lm 17) → remove variação de escala/câmera
+       sem tocar no eixo Z.
+    3. Z permanece apenas centrado no pulso → preserva profundidade relativa
+       entre os dedos, informação crucial para gestos no eixo Z.
     """
     pulso = hand_landmarks[0]
+    base_ind = hand_landmarks[5]
+    base_min = hand_landmarks[17]
+
+    escala_xy = (
+        (base_ind.x - base_min.x) ** 2 +
+        (base_ind.y - base_min.y) ** 2
+    ) ** 0.5
+
+    if escala_xy < 1e-6:
+        escala_xy = 1.0
+
     landmarks = []
     for lm in hand_landmarks:
-        landmarks.append(lm.x - pulso.x)
-        landmarks.append(lm.y - pulso.y)
+        landmarks.append((lm.x - pulso.x) / escala_xy)
+        landmarks.append((lm.y - pulso.y) / escala_xy)
         landmarks.append(lm.z - pulso.z)
     return landmarks
+
+
+def _extrair_ambas_maos(hand_landmarks_list, handedness_list):
+    """
+    Extrai e concatena as features das duas mãos em ordem consistente:
+        [mão direita (63 features)] + [mão esquerda (63 features)] = 126 features
+
+    Mão não detectada → bloco de zeros (o modelo aprende que zeros = ausente).
+    A ordem direita/esquerda é determinada pela label de lateralidade do MediaPipe,
+    garantindo consistência entre frames independente de qual mão foi detectada primeiro.
+
+    Nota: o MediaPipe reporta "Right"/"Left" do ponto de vista da câmera (espelhado).
+    Usamos a convenção direita/esquerda da câmera de forma consistente.
+    """
+    feats_direita = _ZEROS_MAO
+    feats_esquerda = _ZEROS_MAO
+
+    for hand_lms, handed in zip(hand_landmarks_list, handedness_list):
+        label = handed[0].category_name  # "Right" ou "Left"
+        feats = _normalizar_mao(hand_lms)
+        if label == "Right":
+            feats_direita = feats
+        else:
+            feats_esquerda = feats
+
+    return feats_direita + feats_esquerda
+
+
+def _listar_frames(directory):
+    """Retorna lista de imagens ordenada numericamente."""
+    file_names = [
+        f for f in os.listdir(directory)
+        if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+    ]
+    try:
+        file_names.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+    except Exception:
+        file_names.sort()
+    return file_names
+
+
+def _video_dirs_de_classe(class_dir):
+    """
+    Retorna os diretórios de vídeo para uma classe.
+
+    Novo formato (1 subpasta por vídeo): class_dir/v0000/, class_dir/v0001/, ...
+    Formato legado (frames direto na pasta): class_dir/frame_0.jpg, ...
+
+    A separação por subpasta é necessária para evitar que janelas LSTM
+    cruzem a fronteira entre vídeos diferentes.
+    """
+    subdirs = sorted([
+        os.path.join(class_dir, d)
+        for d in os.listdir(class_dir)
+        if os.path.isdir(os.path.join(class_dir, d))
+    ])
+    return subdirs if subdirs else [class_dir]
 
 
 def extract_features_from_directory(
@@ -32,40 +107,33 @@ def extract_features_from_directory(
     model_asset_path="hand_landmarker.task",
     mode="lstm",
     sequence_length=20,
-    step=5,
+    step=1,
     export_dataframe=False,
-    augmentar=False,
-    n_aumentos=5
 ):
     """
-    Varre os diretórios de imagens e extrai coordenadas normalizadas.
+    Varre os diretórios de imagens e extrai coordenadas normalizadas de AMBAS as mãos.
+
+    Retorna features com 126 features por frame (63 mão direita + 63 mão esquerda).
+    Mão não detectada → 63 zeros naquele bloco.
 
     Parâmetros
     ----------
-    dataset_root_dir : str
-        Pasta raiz com subpastas por gesto (ex: dataset/frames_treino).
-    mode : "rf" ou "lstm"
-        "rf"   -> features 2D (amostras, 63)        para RF e KNN
-        "lstm" -> features 3D (amostras, frames, 63) para LSTM
-    sequence_length : int
-        Tamanho da janela temporal para o LSTM.
-    step : int
-        Passo da janela deslizante para o LSTM.
-    export_dataframe : bool
-        Se True, salva o dataset em CSV em ./dataset/.
-    augmentar : bool
-        Se True, aplica data augmentation nos landmarks apos a extracao.
-        Recomendado quando ha poucos videos por gesto (< 10).
-    n_aumentos : int
-        Numero de amostras sinteticas geradas por amostra original.
-        n_aumentos=5 -> ~6x mais dados. n_aumentos=10 -> ~11x mais dados.
+    mode : "rf" → 2D (amostras, 126) | "lstm" → 3D (amostras, frames, 126)
+    step : passo da janela deslizante (padrão 1 → máximo de sequências por vídeo)
+    export_dataframe : salva CSV em ./dataset/
+
+    Sobre augmentation
+    ------------------
+    Não é feita aqui. Ocorre dentro de train_* (model_training.py) APÓS o split,
+    evitando data leakage. O CSV exportado contém apenas dados originais.
     """
     features = []
     labels = []
 
     options = HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_asset_path),
-        running_mode=VisionRunningMode.IMAGE
+        running_mode=VisionRunningMode.IMAGE,
+        num_hands=2,   # detectar até 2 mãos por frame
     )
 
     with HandLandmarker.create_from_options(options) as landmarker:
@@ -77,84 +145,74 @@ def extract_features_from_directory(
 
             print(f"Extraindo features do gesto: {label_name}...")
 
-            file_names = [
-                f for f in os.listdir(class_dir)
-                if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-            ]
-            try:
-                file_names.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
-            except Exception:
-                file_names.sort()
+            video_dirs = _video_dirs_de_classe(class_dir)
+            sequencias_classe = 0
 
-            class_landmarks = []
-            ultimo_valido = [0.0] * NUM_FEATURES
+            for video_dir in video_dirs:
+                file_names = _listar_frames(video_dir)
+                if not file_names:
+                    continue
 
-            for file_name in file_names:
-                image_path = os.path.join(class_dir, file_name)
-                try:
-                    mp_image = mp.Image.create_from_file(image_path)
-                    results = landmarker.detect(mp_image)
+                video_landmarks = []
+                ultimo_valido = [0.0] * NUM_FEATURES
 
-                    if results.hand_landmarks:
-                        landmarks = _extrair_landmarks(results.hand_landmarks[0])
-                        ultimo_valido = landmarks
+                for file_name in file_names:
+                    image_path = os.path.join(video_dir, file_name)
+                    try:
+                        mp_image = mp.Image.create_from_file(image_path)
+                        results = landmarker.detect(mp_image)
 
-                        if mode == "rf":
-                            features.append(landmarks)
-                            labels.append(label_name)
+                        if results.hand_landmarks:
+                            landmarks = _extrair_ambas_maos(
+                                results.hand_landmarks,
+                                results.handedness,
+                            )
+                            ultimo_valido = landmarks
+
+                            if mode == "rf":
+                                features.append(landmarks)
+                                labels.append(label_name)
+                            else:
+                                video_landmarks.append(landmarks)
                         else:
-                            class_landmarks.append(landmarks)
-                    else:
-                        if mode == "lstm":
-                            class_landmarks.append(ultimo_valido)
+                            # Forward-fill com o último frame válido
+                            if mode == "lstm":
+                                video_landmarks.append(ultimo_valido)
 
-                except Exception as e:
-                    print(f"Erro ao processar {image_path}: {e}")
+                    except Exception as e:
+                        print(f"Erro ao processar {image_path}: {e}")
+
+                if mode == "lstm":
+                    for i in range(0, len(video_landmarks) - sequence_length + 1, step):
+                        features.append(video_landmarks[i: i + sequence_length])
+                        labels.append(label_name)
+                        sequencias_classe += 1
 
             if mode == "lstm":
-                sequencias_geradas = 0
-                for i in range(0, len(class_landmarks) - sequence_length + 1, step):
-                    features.append(class_landmarks[i: i + sequence_length])
-                    labels.append(label_name)
-                    sequencias_geradas += 1
-
-                if sequencias_geradas == 0:
+                if sequencias_classe == 0:
                     print(
-                        f"  AVISO: '{label_name}' gerou 0 sequencias. "
-                        f"{len(class_landmarks)} frames disponiveis, "
-                        f"minimo necessario: {sequence_length}."
+                        f"  AVISO: '{label_name}' gerou 0 sequências. "
+                        f"Verifique se os vídeos têm >= {sequence_length} frames detectáveis."
                     )
                 else:
-                    print(f"  -> {sequencias_geradas} sequencias geradas para '{label_name}'")
+                    print(f"  -> {sequencias_classe} sequência(s) para '{label_name}'")
 
-    print(f"\nExtracao concluida! Amostras reais ({mode}): {len(features)}")
-
-    # ----------------------------------------------------------------
-    # Augmentation — aplicada ANTES do export para o CSV ja conter
-    # os dados aumentados, mantendo consistencia entre treino direto
-    # e treino via CSV.
-    #
-    # IMPORTANTE: augmentation so deve ocorrer nos dados de TREINO.
-    # Nunca passe dados de teste/validacao por aqui.
-    # ----------------------------------------------------------------
-    if augmentar and len(features) > 0:
-        features, labels = gerar_amostras_aumentadas(
-            features, labels,
-            mode=mode,
-            n_aumentos=n_aumentos
-        )
+    print(f"\nExtração concluída! Total ({mode}): {len(features)} amostras, {NUM_FEATURES} features/frame")
 
     if export_dataframe:
-        _exportar_csv(features, labels, mode, NUM_FEATURES)
+        _exportar_csv(features, labels, mode)
 
     return features, labels
 
 
-def _exportar_csv(features, labels, mode, num_features):
-    """Salva o dataset em CSV (util para inspecao e para o pipeline via CSV)."""
+def _exportar_csv(features, labels, mode):
+    """Salva o dataset em CSV."""
+    # Colunas: d_x_1, d_y_1, d_z_1, ..., d_x_21, d_y_21, d_z_21,
+    #          e_x_1, e_y_1, e_z_1, ..., e_x_21, e_y_21, e_z_21
     coord_cols = []
-    for i in range(1, (num_features // 3) + 1):
-        coord_cols += [f'x_{i}', f'y_{i}', f'z_{i}']
+    for prefixo in ('d', 'e'):  # d = direita, e = esquerda
+        for i in range(1, 22):
+            coord_cols += [f'{prefixo}_x_{i}', f'{prefixo}_y_{i}', f'{prefixo}_z_{i}']
 
     os.makedirs('./dataset', exist_ok=True)
 
@@ -163,7 +221,7 @@ def _exportar_csv(features, labels, mode, num_features):
         df.insert(0, 'target', labels)
 
     elif mode == 'lstm':
-        print(f'Exportando {len(labels)} amostras (incluindo augmentadas)...')
+        print(f'Exportando {len(labels)} amostras...')
         rows = []
         for sample_idx, (seq, label) in enumerate(zip(features, labels)):
             for frame_idx, frame in enumerate(seq):
@@ -180,20 +238,8 @@ def _exportar_csv(features, labels, mode, num_features):
 if __name__ == "__main__":
     dataset_root = "dataset/frames_treino"
 
-    print("=== Modo LSTM (com augmentation) ===")
-    extract_features_from_directory(
-        dataset_root_dir=dataset_root,
-        mode='lstm',
-        augmentar=True,
-        n_aumentos=5,
-        export_dataframe=True
-    )
+    print("=== Modo LSTM ===")
+    extract_features_from_directory(dataset_root_dir=dataset_root, mode='lstm', export_dataframe=True)
 
-    print("\n=== Modo RF/KNN (com augmentation) ===")
-    extract_features_from_directory(
-        dataset_root_dir=dataset_root,
-        mode='rf',
-        augmentar=True,
-        n_aumentos=5,
-        export_dataframe=True
-    )
+    print("\n=== Modo RF/KNN ===")
+    extract_features_from_directory(dataset_root_dir=dataset_root, mode='rf', export_dataframe=True)
