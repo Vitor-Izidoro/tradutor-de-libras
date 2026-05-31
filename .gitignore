@@ -1,3 +1,4 @@
 __pycache__
 venv
-pyvenv.cfg
+pyvenv.cfgmodels/sign_model.pkl
+dataset/dataset_completo_lstm.csv

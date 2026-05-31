@@ -1,15 +1,43 @@
 import sys
 import os
+import csv
+from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+os.makedirs('logs', exist_ok=True)
 
 from data_preprocessing import extract_frames
 from model_training import train_random_forest, train_lstm, train_knn
 from sign_recognition import recognize_sign
 from feature_extraction import extract_features_from_directory
 from import_from_csv import import_from_csv
+
+
+_NOMES_MODELO = {'1': 'Random Forest', '2': 'LSTM', '3': 'KNN'}
+
+
+def _salvar_log_treino(tipo_modelo, acuracia, n_amostras, augmentar, n_aumentos):
+    """Persiste a acurácia de cada treino em logs/resultados_treino.csv."""
+    log_path = 'logs/resultados_treino.csv'
+    cabecalho = ['data_hora', 'modelo', 'acuracia_%', 'amostras_treino', 'augmentation', 'n_aumentos']
+    novo_arquivo = not os.path.exists(log_path)
+
+    with open(log_path, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if novo_arquivo:
+            writer.writerow(cabecalho)
+        writer.writerow([
+            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            _NOMES_MODELO.get(tipo_modelo, tipo_modelo),
+            f'{acuracia * 100:.2f}',
+            n_amostras,
+            'sim' if augmentar else 'nao',
+            n_aumentos if augmentar else 0,
+        ])
+    print(f"[LOG] Resultado salvo em '{log_path}'")
 
 
 def extrair_dataset_completo(videos, pasta_destino_frames):
@@ -133,23 +161,27 @@ def executar_treinamento():
     augmentar, n_aumentos = _perguntar_augmentation()
 
     print("\n3. Iniciando Treinamento do Modelo...")
+    acc = None
     if tipo_modelo == '1':
         if len(features) < 2:
             print("Erro: Dados insuficientes para treino do Random Forest.")
         else:
-            train_random_forest(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
+            acc = train_random_forest(features, labels, augmentar=augmentar, n_aumentos=n_aumentos, return_accuracy=True)
 
     elif tipo_modelo == '2':
         if len(features) < 2:
             print("Erro: Dados insuficientes para treino do LSTM.")
         else:
-            train_lstm(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
+            acc = train_lstm(features, labels, augmentar=augmentar, n_aumentos=n_aumentos, return_accuracy=True)
 
     elif tipo_modelo == '3':
         if len(features) < 2:
             print("Erro: Dados insuficientes para treino do KNN.")
         else:
-            train_knn(features, labels, augmentar=augmentar, n_aumentos=n_aumentos)
+            acc = train_knn(features, labels, augmentar=augmentar, n_aumentos=n_aumentos, return_accuracy=True)
+
+    if acc is not None:
+        _salvar_log_treino(tipo_modelo, acc, len(features), augmentar, n_aumentos)
 
 
 def comparar_pipelines():
@@ -355,10 +387,15 @@ if __name__ == "__main__":
             disp.plot(cmap=plt.cm.Blues, ax=ax, xticks_rotation=45, values_format='d')
             plt.xticks(ha='right')
             ax.tick_params(axis='both', which='major', labelsize=10)
-            plt.title(f"Matriz de Confusão - Modelo {modelo_matriz}", fontsize=14, pad=20)
+            nome_modelo = _NOMES_MODELO.get(modelo_matriz, modelo_matriz)
+            plt.title(f"Matriz de Confusão - {nome_modelo}", fontsize=14, pad=20)
             plt.xlabel('Sinal Traduzido (Predição)', fontsize=12, labelpad=10)
             plt.ylabel('Sinal Real (Gabarito)', fontsize=12, labelpad=10)
             plt.tight_layout()
+
+            figura_path = f"logs/matriz_confusao_modelo_{modelo_matriz}.png"
+            plt.savefig(figura_path, dpi=150, bbox_inches='tight')
+            print(f"[OK] Figura salva em '{figura_path}'")
             plt.show()
 
         elif escolha == '7':
