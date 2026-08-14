@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import os
 import mediapipe as mp
 import pandas as pd
@@ -28,7 +29,7 @@ def _normalizar_mao(hand_landmarks):
     pulso = hand_landmarks[0]
     base_ind = hand_landmarks[5]
     base_min = hand_landmarks[17]
-
+#criador -> vitor izidoro
     escala_xy = (
         (base_ind.x - base_min.x) ** 2 +
         (base_ind.y - base_min.y) ** 2
@@ -100,7 +101,7 @@ def _video_dirs_de_classe(class_dir):
         if os.path.isdir(os.path.join(class_dir, d))
     ])
     return subdirs if subdirs else [class_dir]
-
+#criador -> vitor izidoro
 
 def extract_features_from_directory(
     dataset_root_dir,
@@ -243,3 +244,4 @@ if __name__ == "__main__":
 
     print("\n=== Modo RF/KNN ===")
     extract_features_from_directory(dataset_root_dir=dataset_root, mode='rf', export_dataframe=True)
+#criador -> vitor izidoro
