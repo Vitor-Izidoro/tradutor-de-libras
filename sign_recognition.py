@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import mediapipe as mp
 import cv2
 import pickle
@@ -92,7 +93,7 @@ def extrair_landmarks(hand_landmarks_list, handedness_list):
 
     return feats_direita + feats_esquerda
 
-
+#criador -> vitor izidoro
 def recognize_sign(video_path, tipo_modelo='1'):
     """
     Reconhece gestos em um vídeo usando o modelo selecionado (RF, LSTM ou KNN).
@@ -239,7 +240,7 @@ def recognize_sign(video_path, tipo_modelo='1'):
             porcentagem = (qtd / total_chutes) * 100
             print(f" -> {gesto}: {porcentagem:.2f}% de predominância ({qtd} frames)")
         print("=" * 40 + "\n")
-
+#criador -> vitor izidoro
         gesto_vencedor = contagem.most_common(1)[0][0]
         return gesto_vencedor
     else:
