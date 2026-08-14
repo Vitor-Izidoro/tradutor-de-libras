@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import cv2
 import os
 
@@ -53,7 +54,7 @@ def extract_frames(video_path, output_root_dir, gesture_label, frame_rate=5):
     cap = cv2.VideoCapture(video_path)
     count = 0
     frame_count = 0
-
+#criador -> vitor izidoro
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -68,3 +69,4 @@ def extract_frames(video_path, output_root_dir, gesture_label, frame_rate=5):
 
     cap.release()
     print(f"Frames da classe '{gesture_label}' salvos em {output_dir} ({frame_count} frames)")
+#criador -> vitor izidoro
