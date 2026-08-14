@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import numpy as np
 from sklearn.model_selection import LeaveOneOut
 from sklearn.ensemble import RandomForestClassifier
@@ -71,7 +72,7 @@ def train_knn(features, labels, model_path="models/knn_sign_model.pkl", return_a
     num_classes = len(set(labels))
     k = max(1, min(3, (len(X) - 1) // num_classes))
     print(f"KNN usando k={k}. Iniciando validação Leave-One-Out...")
-
+#criador -> vitor izidoro
     # Adicionando o tqdm aqui
     for train_index, test_index in tqdm(loo.split(X), total=len(X), desc="Avaliando KNN"):
         X_train, X_test = X[train_index], X[test_index]
@@ -187,3 +188,4 @@ def train_lstm(
 
     if return_accuracy:
         return accuracy
+#criador -> vitor izidoro
