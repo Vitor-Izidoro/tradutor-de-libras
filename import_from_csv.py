@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import pandas as pd
 import numpy as np
 
@@ -30,7 +31,7 @@ def import_from_csv(filepath : str, mode : str ='rf'):
             landmarks_matrix = df_sample[feature_cols].values
             t_real = landmarks_matrix.shape[0]
             features[i, : t_real, :] = landmarks_matrix
-
+#criador -> vitor izidoro
             # Coleta da label da amostra
             sample_label = df_sample['target'].iloc[0]
             labels.append(sample_label)
@@ -50,3 +51,4 @@ if __name__ == "__main__":
     features_rf, labels_rf = import_from_csv(filepath='dataset/dataset_agarrar_rf.csv', mode='rf')
     print(f'Shape das Features de RF: {features_rf.shape}')
     print(f'Shape das Labels de RF: {labels_rf.shape}')
+#criador -> vitor izidoro
