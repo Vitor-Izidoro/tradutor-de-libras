@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import sys
 import os
 import csv
@@ -156,7 +157,7 @@ def executar_treinamento():
     else:
         print("Opção inválida.")
         return
-
+#criador -> vitor izidoro
     # Augmentation perguntada AQUI — será aplicada dentro do treino, após o split
     augmentar, n_aumentos = _perguntar_augmentation()
 
@@ -407,3 +408,4 @@ if __name__ == "__main__":
 
         else:
             print("\nOpcao invalida.")
+#criador -> vitor izidoro
