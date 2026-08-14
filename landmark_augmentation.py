@@ -1,4 +1,5 @@
 """
+criador -> vitor izidoro
 landmark_augmentation.py
 ========================
 Data augmentation diretamente nos landmarks extraídos pelo MediaPipe.
@@ -138,7 +139,7 @@ def _processar_frame(frame_arr, transformacoes,
                 mao_d = _aplicar(mao_d, t, ruido_a, escala_fator, cos_a, sin_a)
             if tem_e:
                 mao_e = _aplicar(mao_e, t, ruido_b, escala_fator, cos_a, sin_a)
-
+#criador -> vitor izidoro
         if espelhar:
             nd = _espelhamento(mao_d.copy()) if tem_d else mao_d
             ne = _espelhamento(mao_e.copy()) if tem_e else mao_e
@@ -305,3 +306,4 @@ if __name__ == "__main__":
     print("[LSTM 2 mãos] OK")
 
     print("\nTodos os testes passaram!")
+#criador -> vitor izidoro
