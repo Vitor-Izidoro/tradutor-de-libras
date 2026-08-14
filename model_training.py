@@ -1,3 +1,4 @@
+#criador -> vitor izidoro
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -123,7 +124,7 @@ def train_knn(
     else:
         usa_kmeans = False
         seq_len = None
-
+#criador -> vitor izidoro
     X_train, X_test, y_train, y_test = train_test_split(
         features_array, labels, test_size=0.2, random_state=42, stratify=labels
     )
@@ -287,7 +288,7 @@ def train_lstm(
 
     with open(encoder_path, "wb") as f:
         pickle.dump(label_encoder, f)
-
+#criador -> vitor izidoro
     print(f"Modelo LSTM salvo em {model_path}")
     print(f"Label Encoder salvo em {encoder_path}")
 
